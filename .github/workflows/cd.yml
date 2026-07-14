@@ -1,221 +1,31 @@
-name: CD Pipeline
+name: CD - Deploy to Railway
 
 on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+  workflow_run:
+    workflows: ["CI Pipeline"]
+    types:
+      - completed
+    branches: [main]
 
 jobs:
   deploy:
-    name: Деплой в продакшн
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-    environment: production
-    
+
     steps:
-    - name: Загрузка кода
-      uses: actions/checkout@v4
-    
-    - name: Установка docker-compose
-      run: |
-        echo "=== Установка docker-compose ==="
-        sudo apt-get update
-        sudo apt-get install -y docker-compose
-        echo "Версия docker-compose: $(docker-compose --version)"
-    
-    - name: Сборка Docker образа Backend
-      run: |
-        echo "=== Сборка Docker образа Backend ==="
-        cd backend
-        docker build -t notes-backend:${{ github.sha }} .
-        echo "Backend образ создан: notes-backend:${{ github.sha }}"
-    
-    - name: Сборка Docker образа Frontend
-      run: |
-        echo "=== Сборка Docker образа Frontend ==="
-        cd frontend
-        docker build -t notes-frontend:${{ github.sha }} .
-        echo "Frontend образ создан: notes-frontend:${{ github.sha }}"
-    
-    - name: Тестирование деплоя локально
-      run: |
-        echo "=== Тестирование деплоя локально ==="
-        
-        # Проверка собранных образов
-        echo "Доступные образы:"
-        docker images | grep notes-
-        
-        # Запуск backend контейнера
-        echo "Запуск backend контейнера..."
-        docker run -d \
-          --name notes-backend-test \
-          -p 5000:5000 \
-          notes-backend:${{ github.sha }}
-        
-        # Ожидание и проверка backend
-        echo "Ожидание запуска backend..."
-        sleep 10
-        
-        echo "Проверка здоровья backend..."
-        if curl -s -f http://localhost:5000/api/health > /dev/null; then
-          echo "✓ Backend работает корректно"
-        else
-          echo "✗ Ошибка проверки здоровья backend"
-          echo "Логи контейнера:"
-          docker logs notes-backend-test
-          exit 1
-        fi
-        
-        # Запуск frontend контейнера
-        echo "Запуск frontend контейнера..."
-        docker run -d \
-          --name notes-frontend-test \
-          -p 3000:80 \
-          notes-frontend:${{ github.sha }}
-        
-        sleep 5
-        
-        echo "Проверка frontend..."
-        if curl -s -f http://localhost:3000 > /dev/null; then
-          echo "✓ Frontend работает корректно"
-        else
-          echo "ℹ️ Frontend контейнер запущен"
-        fi
-        
-        # Отображение статуса контейнеров
-        echo "Статус контейнеров:"
-        docker ps --filter "name=notes-" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-        
-        # Очистка тестовых контейнеров
-        echo "Очистка тестовых контейнеров..."
-        docker stop notes-backend-test notes-frontend-test 2>/dev/null || true
-        docker rm notes-backend-test notes-frontend-test 2>/dev/null || true
-        
-        echo "✓ Локальное тестирование деплоя завершено"
-    
-    - name: Генерация отчета о деплое
-      run: |
-        echo "=== Генерация отчета о деплое ==="
-        
-        # Создание отчета в формате markdown
-        cat > deployment-report.md << EOF
-        # Отчет о деплое приложения
-        
-        ## Информация о проекте
-        - **Проект:** Приложение для заметок с CI/CD пайплайном
-        - **Репозиторий:** \`${{ github.repository }}\`
-        - **Workflow:** \`${{ github.workflow }}\`
-        - **ID выполнения:** \`${{ github.run_id }}\`
-        
-        ## Детали сборки
-        - **Статус:** УСПЕШНО
-        - **Хэш коммита:** \`${{ github.sha }}\`
-        - **Ветка:** \`${{ github.ref }}\`
-        - **Время завершения:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')
-        
-        ## Созданные Docker образы
-        1. **Backend:** \`notes-backend:${{ github.sha }}\`
-        2. **Frontend:** \`notes-frontend:${{ github.sha }}\`
-        
-        ## Результаты тестирования
-        - ✓ Docker образы успешно собраны
-        - ✓ Backend контейнер запускается и проходит проверку здоровья
-        - ✓ Frontend контейнер успешно запускается
-        - ✓ Локальное развертывание прошло успешно
-        
-        ## Выполненные этапы пайплайна
-        1. Загрузка исходного кода
-        2. Установка docker-compose
-        3. Сборка образа backend
-        4. Сборка образа frontend
-        5. Локальное тестирование деплоя
-        6. Проверка работоспособности приложения
-        
-        ## Следующие шаги для продакшн
-        1. Добавить учетные данные Docker Hub в GitHub Secrets
-        2. Настроить облачный хостинг (Render, Vercel, Heroku)
-        3. Настроить продакшн базу данных
-        4. Настроить пользовательский домен и SSL сертификат
-        
-        ## Полезные ссылки
-        - **Выполнение workflow:** https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        - **Коммит:** https://github.com/${{ github.repository }}/commit/${{ github.sha }}
-        - **Репозиторий:** https://github.com/${{ github.repository }}
-        
-        ---
-        *Отчет сгенерирован автоматически CD пайплайном GitHub Actions*
-        EOF
-        
-        echo "Отчет сохранен: deployment-report.md"
-        echo ""
-        echo "Предпросмотр отчета:"
-        echo "=================="
-        head -20 deployment-report.md
-    
-    - name: Загрузка отчета как артефакта
-      uses: actions/upload-artifact@v4
-      with:
-        name: deployment-report
-        path: deployment-report.md
-        retention-days: 30
-    
-    - name: Уведомление об успешном выполнении
-      if: success()
-      run: |
-        echo ""
-        echo "============================================="
-        echo "        CD ПАЙПЛАЙН - ВЫПОЛНЕН УСПЕШНО"
-        echo "============================================="
-        echo ""
-        echo "Итоги выполнения:"
-        echo "  • ✓ Все Docker образы успешно собраны"
-        echo "  • ✓ Локальное тестирование деплоя пройдено"
-        echo "  • ✓ Проверка здоровья backend выполнена"
-        echo "  • ✓ Отчет о деплое сгенерирован"
-        echo ""
-        echo "Технические детали:"
-        echo "  • Окружение: ubuntu-latest"
-        echo "  • Workflow: ${{ github.workflow }}"
-        echo "  • Номер выполнения: #${{ github.run_number }}"
-        echo ""
-        echo "Созданные артефакты:"
-        echo "  • deployment-report.md - доступен для скачивания во вкладке Actions"
-        echo ""
-        echo "Следующие шаги:"
-        echo "  • Настройка продакшн окружения"
-        echo "  • Настройка мониторинга"
-        echo "  • Настройка автоматического резервного копирования"
-        echo ""
-        echo "Ссылка на выполнение:"
-        echo "  https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-        echo ""
-        echo "============================================="
-    
-    - name: Уведомление об ошибке
-      if: failure()
-      run: |
-        echo ""
-        echo "============================================="
-        echo "        CD ПАЙПЛАЙН - ВЫПОЛНЕН С ОШИБКАМИ"
-        echo "============================================="
-        echo ""
-        echo "Чеклист для отладки:"
-        echo "  1. Проверить логи сборки Docker выше"
-        echo "  2. Проверить синтаксис Dockerfile"
-        echo "  3. Проверить версии зависимостей"
-        echo "  4. Просмотреть логи приложения"
-        echo ""
-        echo "Частые проблемы:"
-        echo "  • Отсутствующие пакеты в requirements.txt"
-        echo "  • Неправильные пути в Dockerfile"
-        echo "  • Конфликты портов (5000, 3000 уже используются)"
-        echo "  • Проблемы с сетевым подключением"
-        echo ""
-        echo "Информация об окружении:"
-        echo "  • ОС: Ubuntu $(lsb_release -rs)"
-        echo "  • Docker: $(docker --version)"
-        echo "  • Docker Compose: $(docker-compose --version)"
-        echo ""
-        echo "Ссылка для отладки:"
-        echo "  https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-        echo ""
-        echo "============================================="
+    - uses: actions/checkout@v4
+
+    - name: Install Railway CLI
+      run: npm install -g @railway/cli
+
+    - name: Deploy backend to Railway
+      run: railway up --service server --ci
+      env:
+        RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      working-directory: ./backend
+
+    - name: Deploy frontend to Railway
+      run: railway up --service rent-service --ci
+      env:
+        RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      working-directory: ./frontend

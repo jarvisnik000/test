@@ -245,7 +245,7 @@ function App() {
         <div className="container mx-auto px-4 text-center text-gray-600">
           <p>Notes App &copy; {new Date().getFullYear()}</p>
           <p className="text-sm mt-2">
-            Backend: Python Flask + SQLite | Frontend: React + Tailwind CSS
+            Backend: Python Flask | Frontend: React + Tailwind CSS
           </p>
         </div>
       </footer>

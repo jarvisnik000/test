@@ -1,10 +1,9 @@
 import os
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from database import init_app, get_db
+from database import init_app, get_db, using_postgres
 from models import Note
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request, make_response
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -33,13 +32,18 @@ def index():
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
-    """Проверка работоспособности API"""
     try:
         db = get_db()
-        db.execute('SELECT 1')
+        if using_postgres():
+            with db.cursor() as cur:
+                cur.execute('SELECT 1')
+        else:
+            db.execute('SELECT 1')
+        db_type = 'postgresql' if using_postgres() else 'sqlite'
         return jsonify({
             'status': 'healthy',
-            'database': 'connected'
+            'database': db_type,
+            'connected': True
         }), 200
     except Exception as e:
         return jsonify({

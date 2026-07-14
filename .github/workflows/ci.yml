@@ -2,220 +2,98 @@ name: CI Pipeline
 
 on:
   pull_request:
-    branches: [ main, develop ]
+    branches: [main]
   push:
-    branches: [ main, develop ]
+    branches: [main]
 
 jobs:
-  lint-and-test-backend:
-    name: Backend - Lint & Test
+  backend:
+    name: Backend checks
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: ./backend
-    
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: notes_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
-    - name: Загрузка кода
-      uses: actions/checkout@v4
-    
-    - name: Установка Python 3.9
+    - uses: actions/checkout@v4
+
+    - name: Setup Python 3.11
       uses: actions/setup-python@v5
       with:
-        python-version: '3.9'
-    
-    - name: Кэширование pip пакетов
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-    
-    - name: Установка Python зависимостей
+        python-version: '3.11'
+        cache: pip
+        cache-dependency-path: backend/requirements.txt
+
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pytest pytest-cov flake8
-    
-    - name: Запуск линтера Python (flake8)
+
+    - name: Lint with flake8
       run: |
-        echo "=== Проверка стиля кода Python ==="
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=100 --statistics
-    
-    - name: Запуск unit-тестов Python
-      run: |
-        echo "=== Запуск unit-тестов Python ==="
-        pytest tests/ -v --cov=./ --cov-report=xml --cov-report=term
-    
-    - name: Проверка Flask приложения
-      run: |
-        echo "=== Проверка Flask приложения ==="
-        python -c "from app import app; print('Flask app успешно импортирован')"
-        python -c "import flask; print(f'Версия Flask: {flask.__version__}')"
 
-  lint-and-test-frontend:
-    name: Frontend - Lint & Test
+    - name: Run tests
+      run: pytest tests/ -v --cov=./ --cov-report=term
+
+    - name: Check Flask app import
+      run: python -c "from app import app; print('Flask app OK')"
+
+  frontend:
+    name: Frontend checks
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: ./frontend
-    
+
     steps:
-    - name: Загрузка кода
-      uses: actions/checkout@v4
-    
-    - name: Установка Node.js 18
+    - uses: actions/checkout@v4
+
+    - name: Setup Node.js 18
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-    
-    - name: Получение директории кэша npm
-      id: npm-cache-dir
-      run: |
-        echo "dir=$(npm config get cache)" >> $GITHUB_OUTPUT
-    
-    - name: Кэширование npm зависимостей
-      uses: actions/cache@v3
-      id: npm-cache
-      with:
-        path: ${{ steps.npm-cache-dir.outputs.dir }}
-        key: ${{ runner.os }}-node-${{ hashFiles('frontend/package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-node-
-    
-    - name: Кэширование node_modules
-      uses: actions/cache@v3
-      id: node-modules-cache
-      with:
-        path: frontend/node_modules
-        key: ${{ runner.os }}-modules-${{ hashFiles('frontend/package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-modules-
-    
-    - name: Установка Node.js зависимостей
-      run: |
-        npm ci --no-audit --no-fund
-    
-    - name: Запуск линтера JavaScript (ESLint)
-      run: |
-        echo "=== Проверка стиля кода JavaScript/React ==="
-        npm run lint
-    
-    - name: Сборка React приложения
-      run: |
-        echo "=== Сборка React приложения ==="
-        npm run build
-    
-    - name: Запуск тестов React
-      run: |
-        echo "=== Запуск тестов React ==="
-        npm test -- --watchAll=false --passWithNoTests
-    
-    - name: Проверка результатов сборки
-      run: |
-        echo "=== Проверка результатов сборки ==="
-        echo "Размер директории build:"
-        du -sh build/
-        echo "Содержимое директории build:"
-        ls -la build/
+        cache: npm
+        cache-dependency-path: frontend/package-lock.json
 
-  docker-build:
-    name: Docker Build
-    runs-on: ubuntu-latest
-    needs: [lint-and-test-backend, lint-and-test-frontend]
-    
-    steps:
-    - name: Загрузка кода
-      uses: actions/checkout@v4
-    
-    - name: Установка Docker Compose
-      run: |
-        echo "=== Установка Docker Compose ==="
-        
-        # Проверяем, есть ли уже docker-compose
-        if command -v docker-compose &> /dev/null; then
-            echo "Docker Compose уже установлен"
-        else
-            echo "Установка Docker Compose..."
-            # Скачиваем и устанавливаем Docker Compose
-            DOCKER_COMPOSE_VERSION="v2.24.5"
-            sudo curl -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-            sudo chmod +x /usr/local/bin/docker-compose
-        fi
-        
-        echo "Версия Docker Compose: $(docker-compose --version)"
-    
-    - name: Сборка Docker образа для backend
-      run: |
-        echo "=== Сборка Docker образа для backend ==="
-        docker build -t notes-backend ./backend
-        echo "✓ Backend Docker образ успешно собран"
-    
-    - name: Сборка Docker образа для frontend
-      run: |
-        echo "=== Сборка Docker образа для frontend ==="
-        docker build -t notes-frontend ./frontend
-        echo "✓ Frontend Docker образ успешно собран"
-    
-    - name: Тестирование Docker Compose
-      run: |
-        echo "=== Тестирование Docker Compose ==="
-        docker-compose config --services
-        echo "✓ Docker Compose конфигурация валидна"
+    - name: Install dependencies
+      run: npm ci --legacy-peer-deps --no-audit --no-fund
 
-  integration-validation:
-    name: Integration Validation
+    - name: Run linter
+      run: npm run lint
+
+    - name: Build frontend
+      run: npm run build
+
+    - name: Run tests
+      run: npm test -- --watchAll=false --passWithNoTests
+
+  docker:
+    name: Docker build
     runs-on: ubuntu-latest
-    needs: [docker-build]
-    
+    needs: [backend, frontend]
+
     steps:
-    - name: Загрузка кода
-      uses: actions/checkout@v4
-    
-    - name: Проверка структуры проекта
-      run: |
-        echo "=== Проверка структуры проекта ==="
-        
-        # Проверка обязательных файлов
-        REQUIRED_FILES=(
-          "backend/app.py"
-          "backend/requirements.txt"
-          "backend/Dockerfile"
-          "frontend/package.json"
-          "frontend/Dockerfile"
-          "docker-compose.yml"
-          ".github/workflows/ci.yml"
-        )
-        
-        ALL_FILES_EXIST=true
-        for file in "${REQUIRED_FILES[@]}"; do
-          if [ -f "$file" ]; then
-            echo "✓ $file"
-          else
-            echo "✗ $file - ОТСУТСТВУЕТ"
-            ALL_FILES_EXIST=false
-          fi
-        done
-        
-        if [ "$ALL_FILES_EXIST" = false ]; then
-          echo "ОШИБКА: Отсутствуют обязательные файлы"
-          exit 1
-        fi
-        
-        # Статистика проекта
-        echo ""
-        echo "=== Статистика проекта ==="
-        echo "Backend:"
-        echo "  Python файлов: $(find backend -name '*.py' | wc -l)"
-        echo "  Тестов: $(find backend/tests -name '*.py' 2>/dev/null | wc -l)"
-        echo ""
-        echo "Frontend:"
-        echo "  JavaScript/JSX файлов: $(find frontend/src -name '*.js' -o -name '*.jsx' | wc -l)"
-        echo "  Компонентов React: $(find frontend/src/components -name '*.jsx' 2>/dev/null | wc -l)"
-        echo ""
-        echo "CI/CD:"
-        echo "  Workflow файлов: $(find .github/workflows -name '*.yml' | wc -l)"
-        echo "  Docker файлов: $(find . -name 'Dockerfile' | wc -l)"
-        echo ""
-        echo "ПРОВЕРКА ЗАВЕРШЕНА УСПЕШНО"
+    - uses: actions/checkout@v4
+
+    - name: Build backend image
+      run: docker build -t notes-backend ./backend
+
+    - name: Build frontend image
+      run: docker build -t notes-frontend ./frontend
