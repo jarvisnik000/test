@@ -11,7 +11,7 @@
 | GET     | `/api/health`          | Проверка работоспособности   |
 | GET     | `/api/notes`           | Получить все заметки         |
 | GET     | `/api/notes/<id>`      | Получить заметку по ID       |
-| POST    | `/api/notes`           | Создать новую заметку        |
+| POST    | `/api/notes`           | Создать новую заметку        |1
 | PUT     | `/api/notes/<id>`      | Обновить заметку             |
 | DELETE  | `/api/notes/<id>`      | Удалить заметку              |
 | GET     | `/api/notes/tag/<tag>` | Поиск заметок по тегу        |
