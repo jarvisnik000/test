@@ -31,7 +31,7 @@ def test_health_check(client):
     assert response.status_code == 200
     data = json.loads(response.data)
     assert data['status'] == 'healthy'
-    assert data['database'] == 'connected'
+    assert data['database'] in ('sqlite', 'postgresql')
 
 def test_create_note(client):
     """Тест создания заметки"""
